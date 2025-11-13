@@ -1,17 +1,60 @@
 <?php
 require_once __DIR__ . '/../controllers/AuthController.php';
 require_once __DIR__ . '/../controllers/EstadisticasController.php';
+require_once __DIR__ . '/../controllers/TipoEventoController.php';
+require_once __DIR__ . '/../controllers/EmpresaController.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
-
-// Obtener la URI solicitada
+// ============================================================
+// OBTENER URI
+// ============================================================
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// === LOGIN (Público) ===
-if (strpos($uri, '/api/login') !== false && $_SERVER['REQUEST_METHOD'] === 'POST') {
+// ---------- TIPO DE EVENTOS ----------
+if (strpos($uri, '/ws_stark_eventos/public/api/admin/tipo_eventos') !== false) {
+    $decoded = validarToken('ADMIN');
+    $controller = new TipoEventoController();
+
+    // LISTAR (GET)
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        // Captura parámetros de paginación si existen
+        $page  = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 5;
+
+        $controller->listar($page, $limit);
+        exit;
+    }
+
+    // CREAR (POST)
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $controller->crear();
+        exit;
+    }
+
+    // ACTUALIZAR / ELIMINAR (PUT / DELETE)
+    if (preg_match('#/api/admin/tipo_eventos/(\d+)#', $uri, $matches)) {
+        $id = (int)$matches[1];
+
+        if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+            $controller->actualizar($id);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+            $controller->eliminar($id);
+            exit;
+        }
+    }
+}
+
+
+// ============================================================
+// LOGIN (PÚBLICO)
+// ============================================================
+if ($uri === '/ws_stark_eventos/public/api/login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode(file_get_contents('php://input'), true);
 
-    if (!isset($data['correo']) || !isset($data['password'])) {
+    if (empty($data['correo']) || empty($data['password'])) {
         http_response_code(400);
         echo json_encode(["success" => false, "message" => "Faltan credenciales"]);
         exit;
@@ -22,76 +65,73 @@ if (strpos($uri, '/api/login') !== false && $_SERVER['REQUEST_METHOD'] === 'POST
     exit;
 }
 
-// === RUTA PROTEGIDA: ADMIN/USUARIOS (con paginación, búsqueda y filtro) ===
-if (strpos($uri, '/api/admin/usuarios') !== false && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    $decoded = validarToken('ADMIN');
 
-    require_once __DIR__ . '/../model/UsuarioModel.php';
-    $usuarioModel = new UsuarioModel();
+// ============================================================
+// RUTAS ADMINISTRATIVAS (Protegidas con Token)
+// ============================================================
 
-    // Parámetros opcionales
-    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
-    $estado = isset($_GET['estado']) ? $_GET['estado'] : null;
-    $search = isset($_GET['search']) ? $_GET['search'] : null;
-
-    $resultado = $usuarioModel->listarUsuarios($page, $limit, $estado, $search);
-
-    echo json_encode([
-        "success" => true,
-        "message" => "Acceso autorizado",
-        "usuario" => $decoded,
-        "data" => $resultado
-    ]);
-    exit;
-}
-
-// Obtener totales para el panel de inicio (ADMIN)
-if (strpos($uri, '/api/admin/estadisticas') !== false && $_SERVER['REQUEST_METHOD'] === 'GET') {
+// ---------- ESTADÍSTICAS ----------
+if ($uri === '/ws_stark_eventos/public/api/admin/estadisticas' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $decoded = validarToken('ADMIN');
     $controller = new EstadisticasController();
     $controller->listarTotales();
     exit;
 }
 
-// === RUTA PROTEGIDA: ADMIN/USUARIOS ===
-if (strpos($uri, '/api/admin/usuarios') !== false && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    $decoded = validarToken('ADMIN'); // Valida token
-
+// ---------- USUARIOS ----------
+if (strpos($uri, '/ws_stark_eventos/public/api/admin/usuarios') !== false) {
     require_once __DIR__ . '/../controllers/UsuarioController.php';
-    $controller = new UsuarioController();
-    $controller->listarUsuarios();
-    exit;
-}
-// PUT /api/admin/usuarios/:id
-if (preg_match('#/api/admin/usuarios/(\d+)#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'PUT') {
     $decoded = validarToken('ADMIN');
-    $usuarioId = (int)$matches[1];
     $controller = new UsuarioController();
-    $controller->actualizar($usuarioId);
-    exit;
+
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $controller->listarUsuarios();
+        exit;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $controller->crearUsuario();
+        exit;
+    }
+
+    if (preg_match('#/api/admin/usuarios/(\d+)#', $uri, $matches)) {
+        $id = (int)$matches[1];
+
+        if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+            $controller->actualizar($id);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+            $controller->eliminarUsuario($id);
+            exit;
+        }
+    }
 }
 
-// DELETE /api/admin/usuarios/:id
-if (preg_match('#/api/admin/usuarios/(\d+)#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'DELETE') {
-    $decoded = validarToken('ADMIN'); // Valida token
-    $usuarioId = (int)$matches[1];
-    require_once __DIR__ . '/../controllers/UsuarioController.php';
-    $controller = new UsuarioController();
-    $controller->eliminarUsuario($usuarioId);
-    exit;
+// =========================================
+// RUTA ADMIN: EMPRESA
+// =========================================
+if (strpos($uri, '/api/admin/empresa') !== false) {
+    $decoded = validarToken('ADMIN');
+    $controller = new EmpresaController();
+
+    // Obtener datos de la empresa
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $controller->obtener();
+        exit;
+    }
+
+    // Actualizar empresa
+    if (preg_match('#/api/admin/empresa/(\d+)#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'PUT') {
+        $controller->actualizar((int)$matches[1]);
+        exit;
+    }
 }
 
-// POST /api/admin/usuarios
-if (strpos($uri, '/api/admin/usuarios') !== false && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $decoded = validarToken('ADMIN'); // Valida token
-    require_once __DIR__ . '/../controllers/UsuarioController.php';
-    $controller = new UsuarioController();
-    $controller->crearUsuario();
-    exit;
-}
-
-// === Si no coincide ninguna ruta ===
+// ============================================================
+// ENDPOINT NO ENCONTRADO
+// ============================================================
 http_response_code(404);
 echo json_encode([
     "success" => false,
